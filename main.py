@@ -15,8 +15,16 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///users.db'
 db = SQLAlchemy(model_class=Base)
 db.init_app(app)
 
+#CREATE LOGIN MGR
+login_manager = LoginManager()
+login_manager.init_app(app)
+
+@login_manager.user_loader
+def load_user(user_id):
+    return db.get_or_404(User, user_id)
+
 # CREATE TABLE IN DB
-class User(db.Model):
+class User(UserMixin, db.Model):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     email: Mapped[str] = mapped_column(String(100), unique=True)
     password: Mapped[str] = mapped_column(String(100))
@@ -37,30 +45,42 @@ def register():
         user_name = request.form.get("name")
         user_email = request.form.get("email")
         user_password = request.form.get("password")
-        print(f"{user_name}, {user_email}, {user_password}")
-        new_user = User(name = user_name, email=user_email, password=user_password)
+        user_pwd_hashed = generate_password_hash(password=user_password, method="scrypt",salt_length=16)
+        print(f"{user_name}, {user_email}, {user_pwd_hashed}")
+        new_user = User(name = user_name, email=user_email, password=user_pwd_hashed)
         db.session.add(new_user)
         db.session.commit()
         return render_template("secrets.html", name = user_name)
     return render_template("register.html")
 
-@app.route('/login')
+@app.route('/login', methods=["GET","POST"])
 def login():
+    if request.method == "POST":
+        email = request.form.get("email")
+        password = request.form.get("password")
+        user = db.session.execute(db.Select(User).where(User.email == email)).scalar()
+        print(user)
+        if check_password_hash(pwhash=user.password, password=password):
+            login_user(user)
+            return redirect(url_for("secrets",logged_in=True))
     return render_template("login.html")
 
 
 @app.route('/secrets')
+@login_required
 def secrets():
-    return render_template("secrets.html")
+    return render_template("secrets.html", name=current_user.name, logged_in=True)
 
 
 @app.route('/logout')
 def logout():
     # return render_template("index.html")
-    pass
+    logout_user()
+    return redirect(url_for("home"))
 
 
 @app.route('/download')
+@login_required
 def download():
     return send_from_directory('static', path="files/cheat_sheet.pdf")
 
